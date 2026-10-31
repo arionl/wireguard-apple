@@ -2,7 +2,6 @@
 // Copyright © 2018-2023 WireGuard LLC. All Rights Reserved.
 
 import Cocoa
-import WireGuardKit
 
 protocol TunnelEditViewControllerDelegate: AnyObject {
     func tunnelSaved(tunnel: TunnelContainer)
@@ -263,20 +262,6 @@ class TunnelEditViewController: NSViewController {
             fatalError()
         }
 
-        if excludePrivateIPsCheckbox.state == .on, tunnelConfiguration.peers.count == 1, let dnsServersAddedToAllowedIPs = dnsServersAddedToAllowedIPs {
-            // Update the DNS servers in the AllowedIPs
-            let tunnelViewModel = TunnelViewModel(tunnelConfiguration: tunnelConfiguration)
-            let originalAllowedIPs = tunnelViewModel.peersData[0][.allowedIPs].splitToArray(trimmingCharacters: .whitespacesAndNewlines)
-            let dnsServersInAllowedIPs =  TunnelViewModel.PeerData.normalizedIPAddressRangeStrings(dnsServersAddedToAllowedIPs.splitToArray(trimmingCharacters: .whitespacesAndNewlines))
-            let dnsServersCurrent =  TunnelViewModel.PeerData.normalizedIPAddressRangeStrings(tunnelViewModel.interfaceData[.dns].splitToArray(trimmingCharacters: .whitespacesAndNewlines))
-            let modifiedAllowedIPs = originalAllowedIPs.filter { !dnsServersInAllowedIPs.contains($0) } + dnsServersCurrent
-            tunnelViewModel.peersData[0][.allowedIPs] = modifiedAllowedIPs.joined(separator: ", ")
-            let saveResult = tunnelViewModel.save()
-            if case .saved(let modifiedTunnelConfiguration) = saveResult {
-                tunnelConfiguration = modifiedTunnelConfiguration
-            }
-        }
-
         // wireguard-apple-enhanced: WebSocket proxy settings.
         var wstunnelConfig: WstunnelConfig?
         if wstunnelCheckbox.state == .on {
@@ -290,10 +275,31 @@ class TunnelEditViewController: NSViewController {
             // While the proxy is enabled, the peer endpoint is the local
             // loopback listener; the real destination lives in the proxy
             // config (forwarded server-side through the websocket).
-            if tunnelConfiguration.peers.count == 1, let localEndpoint = Endpoint(from: wsConfig.localEndpoint) {
-                tunnelConfiguration.peers[0].endpoint = localEndpoint
+            // Rewrite the conf text (single peer) and re-parse.
+            if tunnelConfiguration.peers.count == 1 {
+                var confText = textView.string as NSString
+                if let range = confText.range(of: #"(?m)^Endpoint\s*=\s*.*$"#, options: .regularExpression) {
+                    confText = confText.replacingCharacters(in: range, with: "Endpoint = \(wsConfig.localEndpoint)") as NSString
+                    if let rewritten = try? TunnelConfiguration(fromWgQuickConfig: confText as String, called: nameRow.value) {
+                        tunnelConfiguration = rewritten
+                    }
+                }
             }
             wstunnelConfig = wsConfig
+        }
+
+        if excludePrivateIPsCheckbox.state == .on, tunnelConfiguration.peers.count == 1, let dnsServersAddedToAllowedIPs = dnsServersAddedToAllowedIPs {
+            // Update the DNS servers in the AllowedIPs
+            let tunnelViewModel = TunnelViewModel(tunnelConfiguration: tunnelConfiguration)
+            let originalAllowedIPs = tunnelViewModel.peersData[0][.allowedIPs].splitToArray(trimmingCharacters: .whitespacesAndNewlines)
+            let dnsServersInAllowedIPs =  TunnelViewModel.PeerData.normalizedIPAddressRangeStrings(dnsServersAddedToAllowedIPs.splitToArray(trimmingCharacters: .whitespacesAndNewlines))
+            let dnsServersCurrent =  TunnelViewModel.PeerData.normalizedIPAddressRangeStrings(tunnelViewModel.interfaceData[.dns].splitToArray(trimmingCharacters: .whitespacesAndNewlines))
+            let modifiedAllowedIPs = originalAllowedIPs.filter { !dnsServersInAllowedIPs.contains($0) } + dnsServersCurrent
+            tunnelViewModel.peersData[0][.allowedIPs] = modifiedAllowedIPs.joined(separator: ", ")
+            let saveResult = tunnelViewModel.save()
+            if case .saved(let modifiedTunnelConfiguration) = saveResult {
+                tunnelConfiguration = modifiedTunnelConfiguration
+            }
         }
 
         setUserInteractionEnabled(false)

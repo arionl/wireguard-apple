@@ -908,6 +908,7 @@
 				6FB1BD5921D2607A00A991BF /* Sources */,
 				6FB1BD5A21D2607A00A991BF /* Frameworks */,
 				6FB1BD5B21D2607A00A991BF /* Resources */,
+				6EE0000100000000000000C1 /* Build wstunnel */,
 				6FB1BD9D21D4BFE700A991BF /* Embed App Extensions */,
 				6F70E23C22109DE5008BDFB4 /* Embed Login Item Helper */,
 			);
@@ -1095,6 +1096,25 @@
 				6F70E20F221058E1008BDFB4 /* InfoPlist.strings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6EE0000100000000000000C1 /* Build wstunnel */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build wstunnel";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "export PATH=\"$HOME/.cargo/bin:$HOME/bin:$PATH\"\nbash \"$PROJECT_DIR/scripts/build-wstunnel.sh\" \"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/MacOS/wstunnel\"\n";
 		};
 		6FB1BD8F21D4BFE600A991BF /* Resources */ = {
 			isa = PBXResourcesBuildPhase;

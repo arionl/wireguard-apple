@@ -51,7 +51,7 @@ final class WstunnelProcessManager {
     private init() {}
 
     func isRunning(tunnelName: String) -> Bool {
-        queue.sync { children[tunnelName]?.wanted == true && children[tunnelName]?.process.isRunning == true }
+        queue.sync(execute: { children[tunnelName]?.wanted == true && children[tunnelName]?.process.isRunning == true })
     }
 
     /// Spawn the proxy for a tunnel and wait until it is healthy.
@@ -149,7 +149,7 @@ final class WstunnelProcessManager {
         wg_log(.info, message: "WST[\(tunnelName)]: restarting in \(String(format: "%.1f", delay))s (attempt \(child.restarts))")
 
         DispatchQueue.global().asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self, self.queue.sync(execute: { children[tunnelName] }) === child else { return }
+            guard let self, self.queue.sync(execute: { self.children[tunnelName] }) === child else { return }
             Task {
                 // start() recycles the dead child entry and re-gates health.
                 try? await self.start(config: config, tunnelName: tunnelName)

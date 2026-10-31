@@ -57,6 +57,7 @@ for arch in "${ARCHS[@]}"; do
     fi
     log "cargo build --release --target $arch (first time: a few minutes) ..."
     (cd "$SRC_DIR" && cargo build --release --target "$arch" --bin wstunnel)
+    mkdir -p "$(dirname "$out")"
     cp "$SRC_DIR/target/$arch/release/wstunnel" "$out"
 done
 

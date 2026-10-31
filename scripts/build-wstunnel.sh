@@ -49,6 +49,8 @@ fi
 
 # --- build both arches -------------------------------------------------------
 mkdir -p "$BIN_CACHE"
+rustup target add aarch64-apple-darwin x86_64-apple-darwin 2>/dev/null || \
+    log "note: rustup target add failed — relying on installed targets"
 for arch in "${ARCHS[@]}"; do
     out="$BIN_CACHE/$arch/wstunnel"
     if [[ -x "$out" ]]; then

@@ -34,12 +34,44 @@ wstunnel client -L 'udp://127.0.0.1:51820:192.0.2.1:51820?timeout_sec=0' \
   (`NEIPv4Settings.excludedRoutes`) so the wss connection itself never
   routes through the VPN.
 
+## Building
+
+Prereqs on the build machine (Mac, Apple Silicon or Intel):
+- Xcode (built & verified on Xcode 27.1 / macOS 27)
+- Go 1.21+ on PATH (hermetic WireGuardKitGo build)
+- Rust via rustup (`curl -sSL https://sh.rustup.rs | sh -s -- -y --profile minimal`)
+  — the app build cross-compiles wstunnel v11.1.0 for both arches from
+  source (first build ~4 min; cached in `~/.cache/wireguard-enhanced/`,
+  later builds ~2s)
+
+```sh
+cp Sources/WireGuardApp/Config/Developer.xcconfig.template Sources/WireGuardApp/Config/Developer.xcconfig
+#   DEVELOPMENT_TEAM = <your team>, APP_ID_MACOS = <your bundle id>
+xcodebuild -project WireGuard.xcodeproj -scheme WireGuardmacOS \
+  -configuration Debug -destination "generic/platform=macOS" build
+# compile-only without signing: add CODE_SIGNING_ALLOWED=NO
+```
+
+For a *runnable* app, open the project in Xcode once with your Apple ID
+signed in and let automatic signing register the App IDs/profiles (the
+bundle needs Network Extension capability for three ids: app,
+.network-extension, .login-item-helper).
+
+## Fork-specific fixes over upstream
+
+- `WireGuardKitC.h`: `#include <sys/types.h>` for the macOS 27 SDK's
+  stricter modular headers.
+
+## Status (2026-10-31)
+
+Tasks 1–7 of the implementation plan complete; app builds with the
+embedded wstunnel binary. Remaining: E2E validation against
+wstunnel.example.com on a GUI Mac (import real tunnel config, verify
+handshake through the proxy, excluded routes, crash-restart recovery).
+
 ## Limitations
 
 - The container app must be running (menu bar app; enable *Launch at Login*)
   for proxied tunnels — the network extension cannot host the subprocess.
 - Server DNS changes mid-session are not re-excluded until re-activation.
 - iOS targets are unchanged.
-
-See `.hermes/plans/2026-10-31_183506-wireguard-apple-enhanced.md` in the
-Hermes workspace for the full implementation plan.

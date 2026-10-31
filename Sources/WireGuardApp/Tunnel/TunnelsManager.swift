@@ -524,6 +524,17 @@ class TunnelsManager {
                 tunnel.onDeactivated = nil
             }
 
+            #if os(macOS)
+            // wireguard-apple-enhanced: when a proxied tunnel goes down
+            // (deactivation, failure, or OS teardown), take its wstunnel
+            // child down too — unless a restart is in flight.
+            if session.status == .disconnected || session.status == .invalid {
+                if tunnel.status != .restarting {
+                    WstunnelProcessManager.shared.stop(tunnelName: tunnel.name)
+                }
+            }
+            #endif
+
             if tunnel.status == .restarting && session.status == .disconnected {
                 tunnel.startActivation(activationDelegate: self.activationDelegate)
                 return
@@ -596,6 +607,11 @@ class TunnelContainer: NSObject {
     var deactivationTimer: Timer?
     var onDeactivated: (() -> Void)?
 
+    /// wireguard-apple-enhanced: wstunnel server IPs resolved during the
+    /// activation gate; forwarded to the extension as excluded routes
+    /// via the startTunnel session options.
+    var pendingWstunnelExcludeIPs: [String] = []
+
     fileprivate var tunnelProvider: NETunnelProviderManager {
         didSet {
             isActivateOnDemandEnabled = tunnelProvider.isOnDemandEnabled && tunnelProvider.isEnabled
@@ -651,7 +667,69 @@ class TunnelContainer: NSObject {
         status = TunnelStatus(from: tunnelProvider.connection.status)
     }
 
-    fileprivate func startActivation(recursionCount: UInt = 0, lastError: Error? = nil, activationDelegate: TunnelsManagerActivationDelegate?) {
+    #if os(macOS)
+    /// wireguard-apple-enhanced (macOS only).
+    private enum WstunnelPreparationOutcome { case proceedNow, deferred }
+
+    /// Returns .proceedNow when no proxy is needed (or it's already
+    /// healthy); .deferred when an async bring-up was scheduled — the
+    /// caller must then return immediately, and activation resumes via
+    /// startActivation(skipWstunnelPreparation: true) or fails through
+    /// the activation delegate.
+    private func prepareWstunnelIfNeeded(recursionCount: UInt, lastError: Error?, activationDelegate: TunnelsManagerActivationDelegate?) -> WstunnelPreparationOutcome {
+        guard let proto = tunnelProvider.protocolConfiguration as? NETunnelProviderProtocol,
+              let wsConfig = proto.wstunnelConfig, wsConfig.enabled else {
+            pendingWstunnelExcludeIPs = []
+            return .proceedNow
+        }
+        guard let host = wsConfig.serverHost else {
+            wg_log(.error, message: "startActivation: invalid wstunnel server URL for '\(name)'")
+            status = .inactive
+            activationDelegate?.tunnelActivationAttemptFailed(tunnel: self, error: .failedWhileStarting(systemError: NEVPNError(NEVPNError.configurationInvalid)))
+            return .deferred
+        }
+        if WstunnelProcessManager.shared.isRunning(tunnelName: name) {
+            wg_log(.debug, message: "startActivation: wstunnel already running for '\(name)'")
+            if pendingWstunnelExcludeIPs.isEmpty {
+                pendingWstunnelExcludeIPs = proto.wstunnelExcludeIPs
+            }
+            return .proceedNow
+        }
+
+        wg_log(.info, message: "startActivation: preparing wstunnel for '\(name)'")
+        status = .activating // hold the activation mutex through the gate
+        let tunnelName = name
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            let ips = HostResolver.ips(forHost: host)
+            guard !ips.isEmpty else {
+                wg_log(.error, message: "startActivation: DNS resolution failed for wstunnel host '\(host)'")
+                self.status = .inactive
+                self.isAttemptingActivation = false
+                activationDelegate?.tunnelActivationAttemptFailed(tunnel: self, error: .failedWhileStarting(systemError: NEVPNError(NEVPNError.configurationInvalid)))
+                return
+            }
+            self.pendingWstunnelExcludeIPs = ips
+            do {
+                try await WstunnelProcessManager.shared.start(config: wsConfig, tunnelName: tunnelName)
+            } catch {
+                wg_log(.error, message: "startActivation: wstunnel failed for '\(tunnelName)' — \(error)")
+                self.status = .inactive
+                self.isAttemptingActivation = false
+                activationDelegate?.tunnelActivationAttemptFailed(tunnel: self, error: .failedWhileStarting(systemError: error))
+                return
+            }
+            // Best-effort persist so OS-initiated activations (app not
+            // running) still get exclusions from the last activation.
+            (self.tunnelProvider.protocolConfiguration as? NETunnelProviderProtocol)?.wstunnelExcludeIPs = ips
+            self.tunnelProvider.saveToPreferences { _ in }
+            self.startActivation(recursionCount: recursionCount, lastError: lastError, activationDelegate: activationDelegate, skipWstunnelPreparation: true)
+        }
+        return .deferred
+    }
+    #endif // os(macOS)
+
+    fileprivate func startActivation(recursionCount: UInt = 0, lastError: Error? = nil, activationDelegate: TunnelsManagerActivationDelegate?, skipWstunnelPreparation: Bool = false) {
         if recursionCount >= 8 {
             wg_log(.error, message: "startActivation: Failed after 8 attempts. Giving up with \(lastError!)")
             activationDelegate?.tunnelActivationAttemptFailed(tunnel: self, error: .failedBecauseOfTooManyErrors(lastSystemError: lastError!))
@@ -659,6 +737,20 @@ class TunnelContainer: NSObject {
         }
 
         wg_log(.debug, message: "startActivation: Entering (tunnel: \(name))")
+
+        #if os(macOS)
+        // wireguard-apple-enhanced: bring up the wstunnel proxy BEFORE
+        // the tunnel starts.  Activation fails if the proxy isn't
+        // healthy — never bring up a tunnel whose transport is dead.
+        if !skipWstunnelPreparation {
+            switch prepareWstunnelIfNeeded(recursionCount: recursionCount, lastError: lastError, activationDelegate: activationDelegate) {
+            case .proceedNow:
+                break
+            case .deferred:
+                return
+            }
+        }
+        #endif
 
         status = .activating // Ensure that no other tunnel can attempt activation until this tunnel is done trying
 
@@ -686,7 +778,15 @@ class TunnelContainer: NSObject {
             isAttemptingActivation = true
             let activationAttemptId = UUID().uuidString
             self.activationAttemptId = activationAttemptId
-            try (tunnelProvider.connection as? NETunnelProviderSession)?.startTunnel(options: ["activationAttemptId": activationAttemptId])
+            var options: [String: NSObject] = ["activationAttemptId": activationAttemptId as NSString]
+            #if os(macOS)
+            // wireguard-apple-enhanced: excluded routes for the wstunnel
+            // server (resolved during the proxy health gate).
+            if !pendingWstunnelExcludeIPs.isEmpty {
+                options["wstunnelExcludeIPs"] = pendingWstunnelExcludeIPs as NSArray
+            }
+            #endif
+            try (tunnelProvider.connection as? NETunnelProviderSession)?.startTunnel(options: options)
             wg_log(.debug, staticMessage: "startActivation: Success")
             activationDelegate?.tunnelActivationAttemptSucceeded(tunnel: self)
         } catch let error {

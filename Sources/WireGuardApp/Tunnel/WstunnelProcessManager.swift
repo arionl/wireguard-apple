@@ -210,4 +210,32 @@ private final class WstunnelReadinessGate: @unchecked Sendable {
     }
 }
 
+// MARK: - Host resolution
+
+/// getaddrinfo wrapper: all A/AAAA records for a host.  Synchronous —
+/// call off the main thread.
+enum HostResolver {
+    static func ips(forHost host: String) -> [String] {
+        var hints = addrinfo()
+        hints.ai_family = AF_UNSPEC
+        hints.ai_socktype = SOCK_DGRAM // one entry per address, not per socket type
+        var result: UnsafeMutablePointer<addrinfo>?
+        guard getaddrinfo(host, nil, &hints, &result) == 0, let first = result else { return [] }
+        defer { freeaddrinfo(result) }
+
+        var ips = Set<String>()
+        var ai: UnsafeMutablePointer<addrinfo>? = first
+        while let p = ai {
+            if let addr = p.pointee.ai_addr {
+                var buffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
+                if inet_ntop(p.pointee.ai_family, addr, &buffer, socklen_t(INET6_ADDRSTRLEN)) != nil {
+                    ips.insert(String(cString: buffer))
+                }
+            }
+            ai = p.pointee.ai_next
+        }
+        return ips.sorted()
+    }
+}
+
 #endif

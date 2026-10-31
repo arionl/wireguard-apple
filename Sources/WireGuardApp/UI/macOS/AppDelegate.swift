@@ -119,6 +119,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // wireguard-apple-enhanced: take the wstunnel children down with us.
+        WstunnelProcessManager.shared.stopAll()
         guard let currentTunnel = tunnelsTracker?.currentTunnel, currentTunnel.status == .active || currentTunnel.status == .activating else {
             return .terminateNow
         }

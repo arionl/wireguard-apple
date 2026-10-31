@@ -452,3 +452,11 @@
 // Donation
 
 "donateLink" = "♥ Donate to the WireGuard Project";
+
+/* wireguard-apple-enhanced: wstunnel proxy */
+"wstunnelSectionEnable" = "Tunnel through WebSocket proxy (wstunnel)";
+"wstunnelFieldServer" = "Server URL";
+"wstunnelFieldPrefix" = "HTTP upgrade path prefix";
+"wstunnelFieldDest" = "Destination host:port";
+"wstunnelFieldLocalPort" = "Local UDP port";
+"wstunnelAlertInvalidTitle" = "Invalid WebSocket proxy settings";

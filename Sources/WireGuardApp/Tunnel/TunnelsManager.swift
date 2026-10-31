@@ -117,7 +117,7 @@ class TunnelsManager {
         }
     }
 
-    func add(tunnelConfiguration: TunnelConfiguration, onDemandOption: ActivateOnDemandOption = .off, completionHandler: @escaping (Result<TunnelContainer, TunnelsManagerError>) -> Void) {
+    func add(tunnelConfiguration: TunnelConfiguration, onDemandOption: ActivateOnDemandOption = .off, wstunnelConfig: WstunnelConfig? = nil, completionHandler: @escaping (Result<TunnelContainer, TunnelsManagerError>) -> Void) {
         let tunnelName = tunnelConfiguration.name ?? ""
         if tunnelName.isEmpty {
             completionHandler(.failure(TunnelsManagerError.tunnelNameEmpty))
@@ -130,7 +130,7 @@ class TunnelsManager {
         }
 
         let tunnelProviderManager = NETunnelProviderManager()
-        tunnelProviderManager.setTunnelConfiguration(tunnelConfiguration)
+        tunnelProviderManager.setTunnelConfiguration(tunnelConfiguration, wstunnelConfig: wstunnelConfig)
         tunnelProviderManager.isEnabled = true
 
         onDemandOption.apply(on: tunnelProviderManager)
@@ -209,6 +209,7 @@ class TunnelsManager {
     func modify(tunnel: TunnelContainer, tunnelConfiguration: TunnelConfiguration,
                 onDemandOption: ActivateOnDemandOption,
                 shouldEnsureOnDemandEnabled: Bool = false,
+                wstunnelConfig: WstunnelConfig? = nil,
                 completionHandler: @escaping (TunnelsManagerError?) -> Void) {
         let tunnelName = tunnelConfiguration.name ?? ""
         if tunnelName.isEmpty {
@@ -223,6 +224,7 @@ class TunnelsManager {
             tunnel.onDeactivated = { [weak self] in
                 self?.modify(tunnel: tunnel, tunnelConfiguration: tunnelConfiguration,
                              onDemandOption: onDemandOption, shouldEnsureOnDemandEnabled: true,
+                             wstunnelConfig: wstunnelConfig,
                              completionHandler: completionHandler)
             }
             self.startDeactivation(of: tunnel)
@@ -246,6 +248,15 @@ class TunnelsManager {
             tunnelProviderManager.setTunnelConfiguration(tunnelConfiguration)
             isTunnelConfigurationChanged = true
         }
+        #if os(macOS)
+        // wireguard-apple-enhanced: sync the proxy settings even when the
+        // wg config itself didn't change (user toggled only the proxy).
+        if let proto = tunnelProviderManager.protocolConfiguration as? NETunnelProviderProtocol,
+           proto.wstunnelConfig != wstunnelConfig {
+            proto.wstunnelConfig = wstunnelConfig
+            isTunnelConfigurationChanged = true
+        }
+        #endif
         tunnelProviderManager.isEnabled = true
 
         let isActivatingOnDemand = !tunnelProviderManager.isOnDemandEnabled && shouldEnsureOnDemandEnabled
@@ -631,6 +642,10 @@ class TunnelContainer: NSObject {
     var isTunnelAvailableToUser: Bool {
         return (tunnelProvider.protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration?["UID"] as? uid_t == getuid()
     }
+    /// wireguard-apple-enhanced: the tunnel's wstunnel proxy settings.
+    var wstunnelConfig: WstunnelConfig? {
+        return (tunnelProvider.protocolConfiguration as? NETunnelProviderProtocol)?.wstunnelConfig
+    }
     #endif
 
     init(tunnel: NETunnelProviderManager) {
@@ -838,8 +853,13 @@ extension NETunnelProviderManager {
         return config
     }
 
-    func setTunnelConfiguration(_ tunnelConfiguration: TunnelConfiguration) {
+    func setTunnelConfiguration(_ tunnelConfiguration: TunnelConfiguration, wstunnelConfig: WstunnelConfig? = nil) {
         protocolConfiguration = NETunnelProviderProtocol(tunnelConfiguration: tunnelConfiguration, previouslyFrom: protocolConfiguration)
+        // wireguard-apple-enhanced: re-apply the proxy settings — the
+        // fresh protocol above reset providerConfiguration to just UID.
+        if let proto = protocolConfiguration as? NETunnelProviderProtocol {
+            proto.wstunnelConfig = wstunnelConfig
+        }
         localizedDescription = tunnelConfiguration.name
         objc_setAssociatedObject(self, &NETunnelProviderManager.cachedConfigKey, tunnelConfiguration, objc_AssociationPolicy.OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     }

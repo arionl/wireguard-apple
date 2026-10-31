@@ -2,6 +2,7 @@
 // Copyright © 2018-2023 WireGuard LLC. All Rights Reserved.
 
 import Cocoa
+import WireGuardKit
 
 protocol TunnelEditViewControllerDelegate: AnyObject {
     func tunnelSaved(tunnel: TunnelContainer)
@@ -58,6 +59,40 @@ class TunnelEditViewController: NSViewController {
         checkbox.setButtonType(.switch)
         checkbox.state = .off
         return checkbox
+    }()
+
+    // MARK: - wireguard-apple-enhanced: WebSocket proxy (wstunnel)
+
+    let wstunnelCheckbox: NSButton = {
+        let checkbox = NSButton()
+        checkbox.title = tr("wstunnelSectionEnable")
+        checkbox.setButtonType(.switch)
+        checkbox.state = .off
+        return checkbox
+    }()
+
+    let wstunnelServerRow: EditableKeyValueRow = {
+        let row = EditableKeyValueRow()
+        row.key = tr("wstunnelFieldServer")
+        return row
+    }()
+
+    let wstunnelPrefixRow: EditableKeyValueRow = {
+        let row = EditableKeyValueRow()
+        row.key = tr("wstunnelFieldPrefix")
+        return row
+    }()
+
+    let wstunnelDestRow: EditableKeyValueRow = {
+        let row = EditableKeyValueRow()
+        row.key = tr("wstunnelFieldDest")
+        return row
+    }()
+
+    let wstunnelLocalPortRow: EditableKeyValueRow = {
+        let row = EditableKeyValueRow()
+        row.key = tr("wstunnelFieldLocalPort")
+        return row
     }()
 
     let discardButton: NSButton = {
@@ -121,6 +156,7 @@ class TunnelEditViewController: NSViewController {
             updateExcludePrivateIPsVisibility(singlePeerAllowedIPs: nil)
             dnsServersAddedToAllowedIPs = nil
         }
+        populateWstunnelFields()
         privateKeyObservationToken = textView.observe(\.privateKeyString) { [weak publicKeyRow] textView, _ in
             if let privateKeyString = textView.privateKeyString,
                let privateKey = PrivateKey(base64Key: privateKeyString) {
@@ -151,6 +187,9 @@ class TunnelEditViewController: NSViewController {
         excludePrivateIPsCheckbox.target = self
         excludePrivateIPsCheckbox.action = #selector(excludePrivateIPsCheckboxToggled(sender:))
 
+        wstunnelCheckbox.target = self
+        wstunnelCheckbox.action = #selector(wstunnelCheckboxToggled(sender:))
+
         onDemandControlsRow.onDemandViewModel = onDemandViewModel
 
         let margin: CGFloat = 20
@@ -160,6 +199,15 @@ class TunnelEditViewController: NSViewController {
         editorStackView.orientation = .vertical
         editorStackView.setHuggingPriority(.defaultHigh, for: .horizontal)
         editorStackView.spacing = internalSpacing
+
+        // wireguard-apple-enhanced: proxy section under the conf editor.
+        let wstunnelStackView = NSStackView(views: [wstunnelCheckbox, wstunnelServerRow, wstunnelPrefixRow, wstunnelDestRow, wstunnelLocalPortRow])
+        wstunnelStackView.orientation = .vertical
+        wstunnelStackView.alignment = .leading
+        wstunnelStackView.setHuggingPriority(.defaultHigh, for: .horizontal)
+        wstunnelStackView.spacing = internalSpacing / 2
+        editorStackView.addView(wstunnelStackView, in: .bottom)
+        updateWstunnelFieldEnabledState()
 
         let buttonRowStackView = NSStackView()
         buttonRowStackView.setViews([discardButton, saveButton], in: .trailing)
@@ -229,11 +277,30 @@ class TunnelEditViewController: NSViewController {
             }
         }
 
+        // wireguard-apple-enhanced: WebSocket proxy settings.
+        var wstunnelConfig: WstunnelConfig?
+        if wstunnelCheckbox.state == .on {
+            let wsConfig = readWstunnelFields()
+            do {
+                try wsConfig.validate()
+            } catch {
+                ErrorPresenter.showErrorAlert(title: tr("wstunnelAlertInvalidTitle"), message: "\(error)", from: self)
+                return
+            }
+            // While the proxy is enabled, the peer endpoint is the local
+            // loopback listener; the real destination lives in the proxy
+            // config (forwarded server-side through the websocket).
+            if tunnelConfiguration.peers.count == 1, let localEndpoint = Endpoint(from: wsConfig.localEndpoint) {
+                tunnelConfiguration.peers[0].endpoint = localEndpoint
+            }
+            wstunnelConfig = wsConfig
+        }
+
         setUserInteractionEnabled(false)
 
         if let tunnel = tunnel {
             // We're modifying an existing tunnel
-            tunnelsManager.modify(tunnel: tunnel, tunnelConfiguration: tunnelConfiguration, onDemandOption: onDemandOption) { [weak self] error in
+            tunnelsManager.modify(tunnel: tunnel, tunnelConfiguration: tunnelConfiguration, onDemandOption: onDemandOption, wstunnelConfig: wstunnelConfig) { [weak self] error in
                 guard let self = self else { return }
                 self.setUserInteractionEnabled(true)
                 if let error = error {
@@ -245,7 +312,7 @@ class TunnelEditViewController: NSViewController {
             }
         } else {
             // We're creating a new tunnel
-            self.tunnelsManager.add(tunnelConfiguration: tunnelConfiguration, onDemandOption: onDemandOption) { [weak self] result in
+            self.tunnelsManager.add(tunnelConfiguration: tunnelConfiguration, onDemandOption: onDemandOption, wstunnelConfig: wstunnelConfig) { [weak self] result in
                 guard let self = self else { return }
                 self.setUserInteractionEnabled(true)
                 switch result {
@@ -286,6 +353,46 @@ class TunnelEditViewController: NSViewController {
             textView.setConfText(modifiedConfig)
             dnsServersAddedToAllowedIPs = isOn ? tunnelViewModel.interfaceData[.dns] : nil
         }
+    }
+
+    // MARK: - wireguard-apple-enhanced: wstunnel fields
+
+    private func populateWstunnelFields() {
+        let cfg = tunnel?.wstunnelConfig
+        wstunnelCheckbox.state = (cfg?.enabled ?? false) ? .on : .off
+        wstunnelServerRow.value = cfg?.serverUrl ?? ""
+        wstunnelPrefixRow.value = cfg?.pathPrefix ?? ""
+        wstunnelDestRow.value = cfg.map { "\($0.destHost):\($0.destPort)" } ?? ""
+        wstunnelLocalPortRow.value = cfg.map { String($0.localPort) } ?? "51820"
+        updateWstunnelFieldEnabledState()
+    }
+
+    private func readWstunnelFields() -> WstunnelConfig {
+        var config = WstunnelConfig()
+        config.enabled = true
+        config.serverUrl = wstunnelServerRow.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        config.pathPrefix = wstunnelPrefixRow.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let dest = wstunnelDestRow.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        // destination "host:port"
+        if let idx = dest.lastIndex(of: ":"), let port = UInt16(dest[dest.index(after: idx)...]) {
+            config.destHost = String(dest[..<idx])
+            config.destPort = port
+        } else {
+            config.destHost = dest
+        }
+        config.localPort = UInt16(wstunnelLocalPortRow.value.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 51820
+        return config
+    }
+
+    private func updateWstunnelFieldEnabledState() {
+        let enabled = wstunnelCheckbox.state == .on
+        [wstunnelServerRow, wstunnelPrefixRow, wstunnelDestRow, wstunnelLocalPortRow].forEach {
+            $0.valueLabel.isEnabled = enabled
+        }
+    }
+
+    @objc func wstunnelCheckboxToggled(sender: AnyObject?) {
+        updateWstunnelFieldEnabledState()
     }
 }
 

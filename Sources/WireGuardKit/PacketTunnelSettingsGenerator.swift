@@ -15,10 +15,15 @@ typealias EndpointResolutionResult = Result<(Endpoint, Endpoint), DNSResolutionE
 class PacketTunnelSettingsGenerator {
     let tunnelConfiguration: TunnelConfiguration
     let resolvedEndpoints: [Endpoint?]
+    /// Literal IPs to exclude from tunnel routing (see
+    /// WireGuardAdapter.excludedAddresses).  Applied as /32 (v4) or
+    /// /128 (v6) excluded routes.
+    let excludedAddresses: [String]
 
-    init(tunnelConfiguration: TunnelConfiguration, resolvedEndpoints: [Endpoint?]) {
+    init(tunnelConfiguration: TunnelConfiguration, resolvedEndpoints: [Endpoint?], excludedAddresses: [String] = []) {
         self.tunnelConfiguration = tunnelConfiguration
         self.resolvedEndpoints = resolvedEndpoints
+        self.excludedAddresses = excludedAddresses
     }
 
     func endpointUapiConfiguration() -> (String, [EndpointResolutionResult?]) {
@@ -115,16 +120,41 @@ class PacketTunnelSettingsGenerator {
 
         let (ipv4Addresses, ipv6Addresses) = addresses()
         let (ipv4IncludedRoutes, ipv6IncludedRoutes) = includedRoutes()
+        let (ipv4ExcludedRoutes, ipv6ExcludedRoutes) = excludedRoutes()
 
         let ipv4Settings = NEIPv4Settings(addresses: ipv4Addresses.map { $0.destinationAddress }, subnetMasks: ipv4Addresses.map { $0.destinationSubnetMask })
         ipv4Settings.includedRoutes = ipv4IncludedRoutes
+        ipv4Settings.excludedRoutes = ipv4ExcludedRoutes
         networkSettings.ipv4Settings = ipv4Settings
 
         let ipv6Settings = NEIPv6Settings(addresses: ipv6Addresses.map { $0.destinationAddress }, networkPrefixLengths: ipv6Addresses.map { $0.destinationNetworkPrefixLength })
         ipv6Settings.includedRoutes = ipv6IncludedRoutes
+        ipv6Settings.excludedRoutes = ipv6ExcludedRoutes
         networkSettings.ipv6Settings = ipv6Settings
 
         return networkSettings
+    }
+
+    /// Excluded routes for wireguard-apple-enhanced: host addresses that
+    /// must stay on the physical interface (the wstunnel websocket
+    /// server), so the tunnel's own transport never routes through
+    /// itself.  Unparseable/duplicate entries are skipped.
+    private func excludedRoutes() -> ([NEIPv4Route], [NEIPv6Route]) {
+        var ipv4ExcludedRoutes = [NEIPv4Route]()
+        var ipv6ExcludedRoutes = [NEIPv6Route]()
+        var seen = Set<String>()
+
+        for addressString in excludedAddresses {
+            guard !seen.contains(addressString) else { continue }
+            if let ipv4 = IPv4Address(addressString) {
+                seen.insert(addressString)
+                ipv4ExcludedRoutes.append(NEIPv4Route(destinationAddress: "\(ipv4)", subnetMask: "255.255.255.255"))
+            } else if let ipv6 = IPv6Address(addressString) {
+                seen.insert(addressString)
+                ipv6ExcludedRoutes.append(NEIPv6Route(destinationAddress: "\(ipv6)", networkPrefixLength: NSNumber(value: 128)))
+            }
+        }
+        return (ipv4ExcludedRoutes, ipv6ExcludedRoutes)
     }
 
     private func addresses() -> ([NEIPv4Route], [NEIPv6Route]) {

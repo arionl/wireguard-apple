@@ -29,6 +29,14 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         }
 
         // Start the tunnel
+        // wireguard-apple-enhanced: keep the wstunnel websocket server
+        // off the tunnel's routes (session options take precedence over
+        // the persisted providerConfiguration).
+        if let optionsIPs = options?["wstunnelExcludeIPs"] as? [String] {
+            adapter.excludedAddresses = optionsIPs
+        } else if !tunnelProviderProtocol.wstunnelExcludeIPs.isEmpty {
+            adapter.excludedAddresses = tunnelProviderProtocol.wstunnelExcludeIPs
+        }
         adapter.start(tunnelConfiguration: tunnelConfiguration) { adapterError in
             guard let adapterError = adapterError else {
                 let interfaceName = self.adapter.interfaceName ?? "unknown"

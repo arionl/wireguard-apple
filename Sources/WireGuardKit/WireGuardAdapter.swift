@@ -125,6 +125,14 @@ public class WireGuardAdapter {
 
     // MARK: - Initialization
 
+    /// Addresses (literal IPs) that must NOT route through the tunnel
+    /// even when covered by AllowedIPs.  wireguard-apple-enhanced: used
+    /// to keep the wstunnel websocket server reachable via the physical
+    /// interface.  Applied as NE excluded routes in every generated
+    /// settings (start, update, and network-change reassertion).
+    /// Set before `start(tunnelConfiguration:)`.
+    public var excludedAddresses: [String] = []
+
     /// Designated initializer.
     /// - Parameter packetTunnelProvider: an instance of `NEPacketTunnelProvider`. Internally stored
     ///   as a weak reference.
@@ -390,7 +398,8 @@ public class WireGuardAdapter {
     private func makeSettingsGenerator(with tunnelConfiguration: TunnelConfiguration) throws -> PacketTunnelSettingsGenerator {
         return PacketTunnelSettingsGenerator(
             tunnelConfiguration: tunnelConfiguration,
-            resolvedEndpoints: try self.resolvePeers(for: tunnelConfiguration)
+            resolvedEndpoints: try self.resolvePeers(for: tunnelConfiguration),
+            excludedAddresses: self.excludedAddresses
         )
     }
 

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright © 2018-2023 WireGuard LLC. All Rights Reserved.
 
+#include <sys/types.h> /* u_char/u_int16_t/u_int32_t — required by the
+                          macOS 27 SDK's stricter modular headers */
 #include "key.h"
 #include "x25519.h"
 

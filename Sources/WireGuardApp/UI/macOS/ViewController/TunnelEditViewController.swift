@@ -277,10 +277,11 @@ class TunnelEditViewController: NSViewController {
             // config (forwarded server-side through the websocket).
             // Rewrite the conf text (single peer) and re-parse.
             if tunnelConfiguration.peers.count == 1 {
-                var confText = textView.string as NSString
-                if let range = confText.range(of: #"(?m)^Endpoint\s*=\s*.*$"#, options: .regularExpression) {
-                    confText = confText.replacingCharacters(in: range, with: "Endpoint = \(wsConfig.localEndpoint)") as NSString
-                    if let rewritten = try? TunnelConfiguration(fromWgQuickConfig: confText as String, called: nameRow.value) {
+                let confText = textView.string as NSString
+                let range = confText.range(of: #"(?m)^Endpoint\s*=\s*.*$"#, options: .regularExpression)
+                if range.location != NSNotFound {
+                    let rewrittenText = confText.replacingCharacters(in: range, with: "Endpoint = \(wsConfig.localEndpoint)")
+                    if let rewritten = try? TunnelConfiguration(fromWgQuickConfig: rewrittenText, called: nameRow.value) {
                         tunnelConfiguration = rewritten
                     }
                 }

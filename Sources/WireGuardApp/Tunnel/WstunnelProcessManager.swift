@@ -125,7 +125,7 @@ final class WstunnelProcessManager {
     }
 
     func stopAll() {
-        for name in queue.sync({ children.keys }) { stop(tunnelName: name) }
+        for name in queue.sync(execute: { children.keys }) { stop(tunnelName: name) }
     }
 
     // MARK: - Crash restart

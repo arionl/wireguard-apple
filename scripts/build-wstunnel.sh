@@ -13,7 +13,7 @@ set -euo pipefail
 OUTPUT_PATH="${1:?usage: build-wstunnel.sh <output-path>}"
 
 # Pin the version we build. Bump deliberately.
-WSTUNNEL_VERSION="v6.10"          # https://github.com/erebe/wstunnel releases
+WSTUNNEL_VERSION="v11.1.0"          # https://github.com/erebe/wstunnel releases
 WSTUNNEL_REPO="https://github.com/erebe/wstunnel.git"
 
 CACHE_DIR="${WSTUNNEL_CACHE_DIR:-$HOME/.cache/wireguard-enhanced/wstunnel}"

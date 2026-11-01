@@ -34,8 +34,12 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         // the persisted providerConfiguration).
         if let optionsIPs = options?["wstunnelExcludeIPs"] as? [String] {
             adapter.excludedAddresses = optionsIPs
+            wg_log(.info, message: "wstunnel: excluding \(optionsIPs) (from session options)")
         } else if !tunnelProviderProtocol.wstunnelExcludeIPs.isEmpty {
             adapter.excludedAddresses = tunnelProviderProtocol.wstunnelExcludeIPs
+            wg_log(.info, message: "wstunnel: excluding \(tunnelProviderProtocol.wstunnelExcludeIPs) (from persisted config)")
+        } else if tunnelProviderProtocol.wstunnelConfig?.enabled == true {
+            wg_log(.error, message: "wstunnel: enabled but NO exclusion IPs present — wstunnel traffic may be routed into the tunnel")
         }
         // wireguard-apple-enhanced: with wstunnel enabled, the peer
         // endpoint is the loopback wstunnel listener; WireGuard's own

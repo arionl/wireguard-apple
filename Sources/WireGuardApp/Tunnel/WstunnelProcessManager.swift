@@ -78,12 +78,15 @@ final class WstunnelProcessManager {
         let gate = WstunnelReadinessGate(patterns: Self.readinessPatterns)
         let p = Process()
         p.executableURL = binaryURL
-        p.arguments = config.arguments()
+        // Diagnostic verbosity: default INFO for library noise, DEBUG for
+        // wstunnel/rustls internals so TLS/websocket failures are visible
+        // in the app log (EnvFilter syntax).
+        p.arguments = config.arguments() + ["--log-lvl", "info,wstunnel=debug,rustls=debug"]
         p.standardOutput = logPipe(tunnelName: tunnelName, severity: "info", gate: gate)
         p.standardError = logPipe(tunnelName: tunnelName, severity: "warn", gate: gate)
         p.qualityOfService = .userInitiated
 
-        wg_log(.info, message: "WST[\(tunnelName)]: launching: \(config.arguments().joined(separator: " "))")
+        wg_log(.info, message: "WST[\(tunnelName)]: launching: \(p.arguments!.joined(separator: " "))")
         do { try p.run() } catch {
             wg_log(.error, message: "WST[\(tunnelName)]: spawn failed — \(error)")
             throw error

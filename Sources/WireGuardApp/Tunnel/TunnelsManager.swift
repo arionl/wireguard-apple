@@ -507,6 +507,34 @@ class TunnelsManager {
         }
     }
 
+    /// wireguard-apple-enhanced (diagnostic): run `route -n get` for each
+    /// excluded IP and log the interface/gateway lines.
+    private static func logRouteDiagnostics(forIPs ips: [String], tunnelName: String) {
+        let routeBin = "/sbin/route"
+        guard FileManager.default.fileExists(atPath: routeBin) else { return }
+        for ip in ips {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: routeBin)
+            p.arguments = ["-n", "get", ip]
+            let pipe = Pipe()
+            p.standardOutput = pipe
+            p.standardError = FileHandle.nullDevice
+            do {
+                try p.run()
+                p.waitUntilExit()
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                let out = String(data: data, encoding: .utf8) ?? ""
+                let interesting = out.split(separator: "\n")
+                    .filter { $0.contains("interface:") || $0.contains("gateway:") || $0.contains("route to:") }
+                    .map(String.init)
+                    .joined(separator: "; ")
+                wg_log(.info, message: "WST[\(tunnelName)]: route to \(ip) → \(interesting.isEmpty ? "no route output" : interesting)")
+            } catch {
+                wg_log(.error, message: "WST[\(tunnelName)]: route diagnostic failed for \(ip): \(error)")
+            }
+        }
+    }
+
     private func startObservingTunnelStatuses() {
         statusObservationToken = NotificationCenter.default.observe(name: .NEVPNStatusDidChange, object: nil, queue: OperationQueue.main) { [weak self] statusChangeNotification in
             guard let self = self,
@@ -542,6 +570,17 @@ class TunnelsManager {
             if session.status == .disconnected || session.status == .invalid {
                 if tunnel.status != .restarting {
                     WstunnelProcessManager.shared.stop(tunnelName: tunnel.name)
+                }
+            }
+            // wireguard-apple-enhanced (diagnostic): once the tunnel reports
+            // connected, dump the live route for each excluded (wstunnel
+            // server) IP so the log shows ground truth about where the
+            // wss transport actually routes.
+            if session.status == .connected, !tunnel.pendingWstunnelExcludeIPs.isEmpty {
+                let ips = tunnel.pendingWstunnelExcludeIPs
+                let tunnelName = tunnel.name
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    Self.logRouteDiagnostics(forIPs: ips, tunnelName: tunnelName)
                 }
             }
             #endif
@@ -725,6 +764,7 @@ class TunnelContainer: NSObject {
                 return
             }
             self.pendingWstunnelExcludeIPs = ips
+            wg_log(.info, message: "startActivation: resolved wstunnel host '\(host)' → \(ips); these will be excluded from the tunnel routes")
             do {
                 try await WstunnelProcessManager.shared.start(config: wsConfig, tunnelName: tunnelName)
             } catch {

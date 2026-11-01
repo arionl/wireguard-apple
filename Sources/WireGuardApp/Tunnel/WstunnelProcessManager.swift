@@ -241,12 +241,12 @@ enum HostResolver {
                 // len/family/port and produce garbage addresses).
                 switch p.pointee.ai_family {
                 case AF_INET:
-                    let sa = addr.assumingMemoryBound(to: sockaddr_in.self)
+                    let sa = UnsafeRawPointer(addr).assumingMemoryBound(to: sockaddr_in.self)
                     withUnsafePointer(to: sa.pointee.sin_addr) {
                         _ = inet_ntop(AF_INET, $0, &buffer, socklen_t(INET6_ADDRSTRLEN))
                     }
                 case AF_INET6:
-                    let sa = addr.assumingMemoryBound(to: sockaddr_in6.self)
+                    let sa = UnsafeRawPointer(addr).assumingMemoryBound(to: sockaddr_in6.self)
                     withUnsafePointer(to: sa.pointee.sin6_addr) {
                         _ = inet_ntop(AF_INET6, $0, &buffer, socklen_t(INET6_ADDRSTRLEN))
                     }

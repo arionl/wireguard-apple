@@ -10,6 +10,11 @@
 	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
+	<!-- wireguard-apple-enhanced: the wstunnel child BINDS a loopback
+	     UDP listener (127.0.0.1:<localPort>) — binding needs the server
+	     entitlement, outbound wss needs client. -->
+	<key>com.apple.security.network.server</key>
+	<true/>
 	<key>com.apple.security.application-groups</key>
 	<array>
 		<string>$(DEVELOPMENT_TEAM).group.$(APP_ID_MACOS)</string>

@@ -78,15 +78,19 @@ final class WstunnelProcessManager {
         let gate = WstunnelReadinessGate(patterns: Self.readinessPatterns)
         let p = Process()
         p.executableURL = binaryURL
-        // Diagnostic verbosity: default INFO for library noise, DEBUG for
-        // wstunnel/rustls internals so TLS/websocket failures are visible
-        // in the app log (EnvFilter syntax).
-        p.arguments = config.arguments() + ["--log-lvl", "info,wstunnel=debug,rustls=debug"]
+        // Log verbosity is an app setting (menu item, UserDefaults
+        // "wstunnelDebugLogging"); default INFO. Read at spawn — applies
+        // from the next activation on.
+        var argv = config.arguments()
+        if UserDefaults.standard.bool(forKey: "wstunnelDebugLogging") {
+            argv += ["--log-lvl", "info,wstunnel=debug,rustls=debug"]
+        }
+        p.arguments = argv
         p.standardOutput = logPipe(tunnelName: tunnelName, severity: "info", gate: gate)
         p.standardError = logPipe(tunnelName: tunnelName, severity: "warn", gate: gate)
         p.qualityOfService = .userInitiated
 
-        wg_log(.info, message: "WST[\(tunnelName)]: launching: \(p.arguments!.joined(separator: " "))")
+        wg_log(.info, message: "WST[\(tunnelName)]: launching: \(argv.joined(separator: " "))")
         do { try p.run() } catch {
             wg_log(.error, message: "WST[\(tunnelName)]: spawn failed — \(error)")
             throw error
@@ -177,11 +181,37 @@ final class WstunnelProcessManager {
             let text = String(data: data, encoding: .utf8) ?? ""
             for line in text.split(separator: "\n") {
                 wg_log(.info, message: "WST[\(tunnelName)][\(severity)]: \(line)")
-                gate.observe(line: String(line))
+                let lineStr = String(line)
+                gate.observe(line: lineStr)
+                Self.detectStaleRouteHint(line: lineStr, tunnelName: tunnelName)
             }
         }
         src.resume()
         return pipe
+    }
+
+    /// wireguard-apple-enhanced: `connect()` failing instantly with
+    /// EADDRNOTAVAIL (os error 49) means the kernel could not pick a
+    /// source address — on macOS almost always a stale host route left
+    /// behind by a previous (failed) activation pinning the wss server
+    /// IP to a defunct gateway. Surface a actionable hint once.
+    private static var warnedStaleRouteTunnels: Set<String> = []
+    private static let staleRouteLine = try! NSRegularExpression(
+        pattern: #"Cannot connect to tcp endpoint (\S+?):\d+ reason Can't assign requested address"#)
+
+    private static func detectStaleRouteHint(line: String, tunnelName: String) {
+        guard !warnedStaleRouteTunnels.contains(tunnelName) else { return }
+        let range = NSRange(line.startIndex..., in: line)
+        guard let m = staleRouteLine.firstMatch(in: line, range: range),
+              let ipRange = Range(m.range(at: 1), in: line) else { return }
+        let ip = String(line[ipRange])
+        warnedStaleRouteTunnels.insert(tunnelName)
+        wg_log(.error, message: """
+            WST[\(tunnelName)]: connect to \(ip) failed with EADDRNOTAVAIL (os error 49) — \
+            the kernel cannot pick a source address. This is usually a STALE HOST ROUTE left \
+            by an earlier failed activation. Troubleshoot: `route -n get \(ip)` in Terminal; \
+            if the gateway is wrong, `sudo route delete \(ip)` and reactivate the tunnel.
+            """)
     }
 }
 

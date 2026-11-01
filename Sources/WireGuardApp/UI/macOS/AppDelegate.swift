@@ -190,6 +190,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 extension AppDelegate {
+    // wireguard-apple-enhanced: wstunnel child log verbosity toggle
+    // (menu item, backed by UserDefaults "wstunnelDebugLogging").
+    @objc func toggleWstunnelDebugLogging(_ sender: NSMenuItem) {
+        let newValue = !UserDefaults.standard.bool(forKey: "wstunnelDebugLogging")
+        UserDefaults.standard.set(newValue, forKey: "wstunnelDebugLogging")
+        wg_log(.info, message: "wstunnel debug logging \(newValue ? "enabled" : "disabled") — applies from the next tunnel activation")
+    }
+
+    func validate(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(toggleWstunnelDebugLogging(_:)) {
+            menuItem.state = UserDefaults.standard.bool(forKey: "wstunnelDebugLogging") ? .on : .off
+            return true
+        }
+        return true
+    }
+
     @objc func aboutClicked() {
         var appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
         if let appBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String {

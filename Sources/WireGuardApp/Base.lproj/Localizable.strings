@@ -310,6 +310,7 @@
 "macMenuImportTunnels" = "Import Tunnel(s) from File…";
 "macMenuAddEmptyTunnel" = "Add Empty Tunnel…";
 "macMenuViewLog" = "View Log";
+"macMenuWstunnelDebugLogging" = "wstunnel Debug Logging";
 "macMenuExportTunnels" = "Export Tunnels to Zip…";
 "macMenuAbout" = "About WireGuard";
 "macMenuQuit" = "Quit WireGuard";

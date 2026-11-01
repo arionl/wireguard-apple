@@ -51,6 +51,14 @@ class MainMenu: NSMenu {
 
         menu.addItem(NSMenuItem.separator())
 
+        // wireguard-apple-enhanced: wstunnel child log verbosity.
+        // Applies from the next tunnel activation (argv is fixed at spawn).
+        let wstunnelDebugItem = menu.addItem(withTitle: tr("macMenuWstunnelDebugLogging"),
+            action: #selector(AppDelegate.toggleWstunnelDebugLogging), keyEquivalent: "")
+        wstunnelDebugItem.target = NSApp.delegate
+
+        menu.addItem(NSMenuItem.separator())
+
         menu.addItem(withTitle: tr("macMenuQuit"),
             action: #selector(AppDelegate.confirmAndQuit), keyEquivalent: "q")
 

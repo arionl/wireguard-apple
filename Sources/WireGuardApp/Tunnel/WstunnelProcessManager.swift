@@ -236,7 +236,24 @@ enum HostResolver {
         while let p = ai {
             if let addr = p.pointee.ai_addr {
                 var buffer = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
-                if inet_ntop(p.pointee.ai_family, addr, &buffer, socklen_t(INET6_ADDRSTRLEN)) != nil {
+                // inet_ntop needs a pointer to the embedded in_addr /
+                // in6_addr — NOT the sockaddr itself (its first bytes are
+                // len/family/port and produce garbage addresses).
+                switch p.pointee.ai_family {
+                case AF_INET:
+                    let sa = addr.assumingMemoryBound(to: sockaddr_in.self)
+                    withUnsafePointer(to: sa.pointee.sin_addr) {
+                        _ = inet_ntop(AF_INET, $0, &buffer, socklen_t(INET6_ADDRSTRLEN))
+                    }
+                case AF_INET6:
+                    let sa = addr.assumingMemoryBound(to: sockaddr_in6.self)
+                    withUnsafePointer(to: sa.pointee.sin6_addr) {
+                        _ = inet_ntop(AF_INET6, $0, &buffer, socklen_t(INET6_ADDRSTRLEN))
+                    }
+                default:
+                    break
+                }
+                if buffer[0] != 0 {
                     ips.insert(String(cString: buffer))
                 }
             }

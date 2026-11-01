@@ -509,6 +509,7 @@ class TunnelsManager {
 
     /// wireguard-apple-enhanced (diagnostic): run `route -n get` for each
     /// excluded IP and log the interface/gateway lines.
+    #if os(macOS)
     private static func logRouteDiagnostics(forIPs ips: [String], tunnelName: String) {
         let routeBin = "/sbin/route"
         guard FileManager.default.fileExists(atPath: routeBin) else { return }
@@ -534,6 +535,7 @@ class TunnelsManager {
             }
         }
     }
+    #endif
 
     private func startObservingTunnelStatuses() {
         statusObservationToken = NotificationCenter.default.observe(name: .NEVPNStatusDidChange, object: nil, queue: OperationQueue.main) { [weak self] statusChangeNotification in

@@ -37,6 +37,18 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         } else if !tunnelProviderProtocol.wstunnelExcludeIPs.isEmpty {
             adapter.excludedAddresses = tunnelProviderProtocol.wstunnelExcludeIPs
         }
+        // wireguard-apple-enhanced: with wstunnel enabled, the peer
+        // endpoint is the loopback wstunnel listener; WireGuard's own
+        // ListenPort is then not only irrelevant but actively harmful —
+        // a fixed ListenPort equal to the wstunnel local port collides
+        // ("address already in use") and the interface stays Down.
+        // Force a random listen port.
+        if tunnelProviderProtocol.wstunnelConfig?.enabled == true,
+           tunnelConfiguration.interface.listenPort != nil {
+            wg_log(.info, message: "wstunnel enabled: dropping fixed listen port \(tunnelConfiguration.interface.listenPort!) to avoid colliding with the local UDP forwarder")
+            tunnelConfiguration.interface.listenPort = nil
+        }
+
         adapter.start(tunnelConfiguration: tunnelConfiguration) { adapterError in
             guard let adapterError = adapterError else {
                 let interfaceName = self.adapter.interfaceName ?? "unknown"

@@ -280,8 +280,15 @@ class TunnelEditViewController: NSViewController {
                 let confText = textView.string as NSString
                 let range = confText.range(of: #"(?m)^Endpoint\s*=\s*.*$"#, options: .regularExpression)
                 if range.location != NSNotFound {
-                    let rewrittenText = confText.replacingCharacters(in: range, with: "Endpoint = \(wsConfig.localEndpoint)")
-                    if let rewritten = try? TunnelConfiguration(fromWgQuickConfig: rewrittenText, called: nameRow.value) {
+                    var rewrittenText = confText.replacingCharacters(in: range, with: "Endpoint = \(wsConfig.localEndpoint)") as NSString
+                    // A fixed ListenPort equal to the wstunnel local port
+                    // collides with the loopback forwarder (EADDRINUSE);
+                    // drop it so WireGuard binds a random port instead.
+                    let listenRange = rewrittenText.range(of: #"(?m)^ListenPort\s*=\s*.*\n?"#, options: .regularExpression)
+                    if listenRange.location != NSNotFound {
+                        rewrittenText = rewrittenText.replacingCharacters(in: listenRange, with: "")
+                    }
+                    if let rewritten = try? TunnelConfiguration(fromWgQuickConfig: rewrittenText as String, called: nameRow.value) {
                         tunnelConfiguration = rewritten
                     }
                 }

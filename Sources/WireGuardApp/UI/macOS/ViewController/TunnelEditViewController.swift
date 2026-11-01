@@ -286,7 +286,7 @@ class TunnelEditViewController: NSViewController {
                     // drop it so WireGuard binds a random port instead.
                     let listenRange = rewrittenText.range(of: #"(?m)^ListenPort\s*=\s*.*\n?"#, options: .regularExpression)
                     if listenRange.location != NSNotFound {
-                        rewrittenText = rewrittenText.replacingCharacters(in: listenRange, with: "")
+                        rewrittenText = rewrittenText.replacingCharacters(in: listenRange, with: "") as NSString
                     }
                     if let rewritten = try? TunnelConfiguration(fromWgQuickConfig: rewrittenText as String, called: nameRow.value) {
                         tunnelConfiguration = rewritten

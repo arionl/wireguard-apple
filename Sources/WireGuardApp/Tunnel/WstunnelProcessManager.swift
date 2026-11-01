@@ -63,7 +63,12 @@ final class WstunnelProcessManager {
             wg_log(.error, message: "WST[\(tunnelName)]: invalid config — \(error)")
             throw WstunnelProcessError.invalidConfig
         }
-        guard let binaryURL = Bundle.main.url(forResource: "wstunnel", withExtension: nil) else {
+        // Embedded by the build phase next to the app executable.
+        // (Bundle.url(forResource:) only searches Contents/Resources —
+        // it can never find Contents/MacOS.)
+        let binaryURL = Bundle.main.executableURL?.deletingLastPathComponent()
+            .appendingPathComponent("wstunnel")
+        guard let binaryURL, FileManager.default.fileExists(atPath: binaryURL.path) else {
             wg_log(.error, message: "WST[\(tunnelName)]: binary missing from app bundle")
             throw WstunnelProcessError.binaryMissing
         }
